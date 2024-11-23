@@ -1,6 +1,7 @@
 import gdspy
 import klayout.db as kdb
 import numpy as np
+from os.path import basename, splitext
 
 
 def merge_shapes_in_layer(gds_file, output_gds_file, layer_number):
@@ -456,3 +457,53 @@ def bias_gds_features(input_gds, output_gds, bias, layer_number, datatype_number
 
     # Write the biased GDS file
     layout.write(output_gds)
+
+def convert_gds_to_dxf(gds_file:str): 
+    """
+    Converts a given gds layout into dxf using Klayout
+
+    Parameters: 
+        input_gds (str, required): the path to gds file which will be converted 
+    """ 
+    
+    #Sanity Checks
+    assert type(gds_file) == str, "Error: 'input_gds' given was not given as a str, please input path to gds file" 
+
+    filename, extension = splitext(basename(gds_file))
+    assert extension in ['.gds', ".gds"], "Error: input file is not a .gds file, it is %s" % (extension) 
+
+    print("Input recieved: processing %s%s " % (filename,extension)) 
+
+    #Use Klayout to load in GDS design
+    layout = kdb.Layout()
+    layout.read(input_gds)
+
+    #Load in top layer(s) of GDS design to let user know to double check their design(s)
+    top_cells = layout.top_cells()
+    top_cell_names = [cell.name for cell in top_cells] 
+
+    if len(top_cell_names) > 1:
+        print("Current gds design has an ambigiously defined top layer -- might cause issues in conversion to DXF!")
+    else:
+        print("Current gds design is compatible -- performing conversion")
+
+
+    #Conversion process:
+    if len(top_cell_names) == 1:
+        new_output_opts = kdb.SaveLayoutOptions()   
+        new_output_opts.format = "DXF"
+        new_output_opts.dbu = 0.001
+        new_output_opts.scale_factor = 0.001
+        new_output_opts.dxf_polygon_mode = 0 
+        layout.write(filename, new_output_opts)
+    #For multiple top layers
+    else:
+        for t_cell in top_cells:
+            new_output_opts = kdb.SaveLayoutOptions()
+            new_output_opts.format = "DXF"
+            new_output_opts.dbu = 0.001
+            new_output_opts.scale_factor = 0.001
+            new_output_opts.dxf_polygon_mode = 0 
+            new_output_opts.select_cell( t_cell.cell_index() )
+            tcdxf = "__%s__%s" % (t_cell.name, filename)
+            layout.write(tcdxf, new_output_opts)
