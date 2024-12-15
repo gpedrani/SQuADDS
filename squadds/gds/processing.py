@@ -1,7 +1,7 @@
 import gdspy
 import klayout.db as kdb
 import numpy as np
-from os.path import basename, splitext
+from os.path import basename, splitext, abspath, join
 
 
 def merge_shapes_in_layer(gds_file, output_gds_file, layer_number):
@@ -458,19 +458,64 @@ def bias_gds_features(input_gds, output_gds, bias, layer_number, datatype_number
     # Write the biased GDS file
     layout.write(output_gds)
 
-def convert_gds_to_dxf(gds_file:str): 
+def convert_gds_to_dxf(input_gds:str, output_destination:str = None, output_name:str = None,  database_unit:float = 0.001, scale_factor:float = 0.001, polyline_mode:int = 0): 
     """
     Converts a given gds layout into dxf using Klayout
 
+    Use tip: make sure to wrap strings and string literals with the 'r' prefix to help Python
+        interpreate string as a filepath -- example: r"my/file/path" or r"my\file\path"
+
     Parameters: 
         input_gds (str, required): the path to gds file which will be converted 
+
+        output_destination (str, optional): the path to the directory you wish to send gds to; 
+            defaults to the same directory as the input if none is specified
+
+        output_name (str, optional): the name of the final gds file you wish to produce; 
+            defaults to the same name as the input_gds file
+
+        database_unit (float, optional): set the database unit (ie: the unit the design is rendered at) in Klayout; default value is 0.001 micrometers
+
+        scale_factor (float,optional): set scale factor for transforming a gds file into the dxf format; default value is 0.001
+
+        polyline_mode (int,optional): set the polyline mode for a dxf file in Klayout - which determines how polyline and lwpolyline entities are converted treated
+            in Klayout; Default value is 0. Possible values for this parameter are: 
+            0 [automatic], 
+            1 [keep's 0-width line geometry constant], 
+            2 [create polygons from closed polulines with width =0], 
+            3 [merge all lines with width = 0 into polygons], and
+            4 [merge all lines with width = 0 into polygons plus auto-close open contours].
+            If some geometry on a given input circuit is anomolous, consider selecting a different value for this parameter!
     """ 
     
     #Sanity Checks
-    assert type(gds_file) == str, "Error: 'input_gds' given was not given as a str, please input path to gds file" 
+    assert type(input_gds) == str, "Error: 'input_gds' given was not given as a str, please input path to gds file" 
+    assert polyline_mode in [0,1,2,3,4], "Error: invalid polyline_mode given! Supported values are 0,1,2,3, and 4; see docstring for details"
 
-    filename, extension = splitext(basename(gds_file))
+    filename, extension = splitext(basename(input_gds))
     assert extension in ['.gds', ".gds"], "Error: input file is not a .gds file, it is %s" % (extension) 
+
+    #Process output_destination: 
+    if output_destination == None:
+        output_destination = abspath(input_gds)
+    #turn into a path-object so forward and backslashes are
+    #handled properly -- even if the user errorneously puts in the wrong slash 
+    elif output_destination != None:
+        output_destination = abspath(output_destination)
+
+    
+    #Process output_name:
+    if output_name == None:
+        output_name =  filename + ".dxf"
+    #need to check if the user specified an extension or not, and process appropriately  
+    if output_name != None:
+        fname, ext = splitext(output_name)
+        if ext in ['.dxf', ".dxf"]:
+            pass  
+        else:
+           output_name = fname + ".dxf" 
+
+    final_output = join(output_destination, output_name)
 
     print("Input recieved: processing %s%s " % (filename,extension)) 
 
@@ -492,18 +537,100 @@ def convert_gds_to_dxf(gds_file:str):
     if len(top_cell_names) == 1:
         new_output_opts = kdb.SaveLayoutOptions()   
         new_output_opts.format = "DXF"
-        new_output_opts.dbu = 0.001
-        new_output_opts.scale_factor = 0.001
-        new_output_opts.dxf_polygon_mode = 0 
-        layout.write(filename, new_output_opts)
+        new_output_opts.dbu = database_unit 
+        new_output_opts.scale_factor = scale_factor 
+        new_output_opts.dxf_polyline__mode = polyline_mode 
+        layout.write(final_output, new_output_opts)
     #For multiple top layers
     else:
         for t_cell in top_cells:
             new_output_opts = kdb.SaveLayoutOptions()
             new_output_opts.format = "DXF"
-            new_output_opts.dbu = 0.001
-            new_output_opts.scale_factor = 0.001
-            new_output_opts.dxf_polygon_mode = 0 
+            new_output_opts.dbu = database_unit 
+            new_output_opts.scale_factor = scale_factor 
+            new_output_opts.dxf_polyline_mode = polyline_mode 
             new_output_opts.select_cell( t_cell.cell_index() )
-            tcdxf = "__%s__%s" % (t_cell.name, filename)
+            tcdxf = "__%s__%s" % (t_cell.name, final_output)
             layout.write(tcdxf, new_output_opts)
+
+    print("Processing complete: created new .DXF file")
+
+def convert_dxf_to_gds(input_dxf:str, output_destination:str = None, output_name:str = None, database_unit:float = 0.001, dxf_unit:int = 1, polyline_mode:int = 0): 
+    """
+    Converts a given dxf layout into gds using Klayout
+
+    Use tip: make sure to wrap strings and string literals with the 'r' prefix to help Python
+        interpreate string as a filepath -- example: r"my/file/path" or r"my\file\path"
+
+    Parameters: 
+        input_dxf (str, required): the path to gds file which will be converted
+
+        output_destination (str, optional): the path to the directory you wish to send gds to; 
+            defaults to the same directory as the input if none is specified
+
+        output_name (str, optional): the name of the final gds file you wish to produce, with proper extension; 
+            defaults to the same name as the input_dxf file
+
+        database_unit (float, optional): set the database unit (ie: the unit the design is rendered at) in Klayout; default value is 0.001 micrometers
+
+        dxf_unit (int,optional): set the unit for value for a dxf file in Klayout; default value is 1 mircometer
+
+        polyline_mode (int,optional): set the polyline mode for a dxf file in Klayout - which determines how polyline and lwpolyline entities are converted treated
+            in Klayout; Default value is 0. Possible values for this parameter are: 
+            0 [automatic], 
+            1 [keep's 0-width line geometry constant], 
+            2 [create polygons from closed polulines with width =0], 
+            3 [merge all lines with width = 0 into polygons], and
+            4 [merge all lines with width = 0 into polygons plus auto-close open contours].
+            If some geometry on a given input circuit is anomolous, consider selecting a different value for this parameter! 
+    """ 
+    
+    #Sanity Checks
+    assert type(input_dxf) == str, "Error: 'input_dxf' given was not given as a str, please input path to DXF file" 
+    assert polyline_mode in [0,1,2,3,4], "Error: invalid polyline_mode given! Supported values are 0,1,2,3, and 4; see docstring for details"
+
+    #The empty string is included here, because on Linux Systems .dxf files are sometimes valid without a propper extension name
+    filename, extension = splitext(basename(input_dxf))
+    assert extension in ['.dxf', ".dxf", ""], "Error: input file is not a .dxf file, it is %s" % (extension) 
+
+    #Process output_destination: 
+    if output_destination == None:
+        output_destination = abspath(input_dxf)
+    #turn into a path-object so forward and backslashes are
+    #handled properly -- even if the user errorneously puts in the wrong slash 
+    elif output_destination != None:
+        output_destination = abspath(output_destination)
+
+    #Process output_name:
+    if output_name == None:
+        output_name =  filename + ".gds"
+    #need to check if the user specified an extension or not, and process appropriately  
+    if output_name != None:
+        fname, ext = splitext(output_name)
+        if ext in ['.gds', ".gds"]:
+           pass 
+        else:
+           output_name = fname + ".gds" 
+
+    final_output = join(output_destination, output_name)
+
+
+    print("Input recieved: processing %s%s " % (filename,extension)) 
+
+    #Use Klayout to load in DXF design
+    layout = kdb.Layout()
+
+    #Define layout options to properly load in DXF
+    load_options = kdb.LoadLayoutOptions()
+    load_options.dxf_dbu   = database_unit 
+    load_options.dxf_unit  = dxf_unit 
+    load_options.dxf_polyline_mode = polyline_mode 
+    layout.read(input_dxf, load_options)
+
+    #Conversion process:
+    new_output_opts = kdb.SaveLayoutOptions()
+    new_output_opts.format = "GDS2"
+    layout.write(final_output, new_output_opts)
+
+
+    print("Processing complete: created new .gds file")
